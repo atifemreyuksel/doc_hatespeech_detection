@@ -1,6 +1,3 @@
-import itertools
-import os
-
 import pandas as pd
 from torch.utils.data import Dataset
 
@@ -62,22 +59,21 @@ class HateSpeechDataset(Dataset):
         else:
             return [sentences]
 
-    def _text_to_instance(self, sentences):
-        tokenized_sentences = [
-            self._tokenizer.tokenize(s)[: self.sent_max_len] + [Token("[SEP]")] for s in sentences
-        ]
+    def __get_tokenized_sentence(self, sentence, is_first_sent=False):
+        if is_first_sent:
+            tokenized_sentence = self.tokenizer(sentence, truncation=True, padding='max_length', max_length=self.sent_max_len)
+        else:
+            tokenized_sentence = self.tokenizer(sentence, truncation=True, padding='max_length', max_length=self.sent_max_len+1)
+            tokenized_sentence = {key: value[1:] for key, value in tokenized_sentence.items()}
+        return tokenized_sentence
 
-        # With padding, # of sentences in all instance will be the same for model.
+    def __text_to_instance(self, sentences):
+        tokenized_sentences = [self.__get_tokenized_sentence(s, is_first_sent=i==1) for i, s in enumerate(sentences)]
+
         if len(tokenized_sentences) < self.max_sent_per_example:
-            padding_sentences = [
-                [Token("[PAD]"), Token("[SEP]")]
-                for i in range(self.max_sent_per_example - len(tokenized_sentences))
-            ]
+            padding_sentences = [self.__get_tokenized_sentence("[PAD]", is_first_sent=False) for _ in range(self.max_sent_per_example - len(tokenized_sentences))]
             tokenized_sentences.extend(padding_sentences)
-        sentences = [list(itertools.chain.from_iterable(tokenized_sentences))[:-1]]
-
-        # fields["gru_decoder_inputs"] = TextField([Token("[PAD]")], self._token_indexers)
-
+        #TODO: fields["gru_decoder_inputs"] = TextField([Token("[PAD]")], self._token_indexers)
         return sentences
 
     def _process_one_news(self, sentences, label):
@@ -88,7 +84,7 @@ class HateSpeechDataset(Dataset):
 
         instances, labels = [], []
         for sentences_loop in self._enforce_max_sent_per_example(sentences):
-            instances_loop = self.text_to_instance(sentences=sentences_loop)
+            instances_loop = self.__text_to_instance(sentences=sentences_loop)
             instances.append(instances_loop)
             labels.append(label)
         return instances, labels

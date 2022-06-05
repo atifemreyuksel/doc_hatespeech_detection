@@ -8,8 +8,8 @@ class HateSpeechDataset(Dataset):
         phase,
         tokenizer,
         data_path="../data/data_cleaned_sentences_phases_2020-04-16.csv",
-        sent_max_len: int = 100,
-        max_sent_per_news: int = 20,
+        sent_max_len: int = 200,
+        max_sent_per_news: int = 30,
     ):
         self.tokenizer = tokenizer
         self.sent_max_len = sent_max_len

@@ -13,64 +13,10 @@ from tqdm import tqdm
 from transformers import AutoTokenizer
 
 import utils
-
-#from models.vggnet import Vggnet
 from data_loaders.hatespeech_loader import HateSpeechDataset
+from models.model import HateSpeechModel
 
-# Example command: python train.py --name test_mnist_eval_old --gpu_ids 1 --batch_size 32 --pretrained --dataset_dir data/MNIST --num_classes 10 --imsize 128 --eval_old_task
-
-def train(model, train_loader, criterion, optimizer):
-    epoch_loss = 0
-    epoch_accuracy = 0
-
-    model.train()
-    for data, label in tqdm(train_loader):
-        data = data.to(device)
-        label = label.to(device)
-
-        output = model(data)
-        loss = criterion(output, label)
-
-        optimizer.zero_grad()
-        if utils.check_loss(loss, loss.item()):
-            loss.backward()
-            optimizer.step()
-
-        acc = (output.argmax(dim=1) == label).float().mean()
-        epoch_accuracy += acc / len(train_loader)
-        epoch_loss += loss / len(train_loader)
-    return model, optimizer, epoch_accuracy, epoch_loss
-
-def evaluation(model, val_loader, criterion):    
-    epoch_val_loss = 0
-
-    model.eval()
-    with torch.no_grad():
-        epoch_val_loss = 0
-
-        for data, label in val_loader:
-            data = data.to(device)
-            label = label.to(device)
-
-            val_output = model(data)
-            val_loss = criterion(val_output, label)
-
-            acc = (val_output.argmax(dim=1) == label).float().mean()
-            epoch_val_loss += val_loss / len(val_loader)
-
-            predictions = val_output.argmax(dim=1).data
-            f1.add_batch(predictions=predictions, references=label.data)
-            acc.add_batch(predictions=predictions, references=label.data)
-            rec.add_batch(predictions=predictions, references=label.data)
-            prec.add_batch(predictions=predictions, references=label.data)
-    val_metrics = {
-        "accuracy": acc.compute()['accuracy'],
-        "precision": prec.compute()['precision'],
-        "recall": rec.compute()['recall'],
-        "f1": f1.compute()['f1']
-    }
-    return epoch_val_loss, val_metrics
-
+# Example command: python train.py --name test_hate_model --batch_size 4 --epochs 2 --num_classes 2
 
 parser = argparse.ArgumentParser()
 
@@ -82,19 +28,19 @@ parser.add_argument('--checkpoints_dir', type=str, default='./checkpoints', help
 
 # training specifics       
 parser.add_argument('--batch_size', type=int, default=4, help='input batch size')
-parser.add_argument('--num_workers', type=int, default=16, help='num workers for data prep')
+parser.add_argument('--num_workers', type=int, default=0, help='num workers for data prep')
 parser.add_argument('--epochs', type=int, default=4, help='# of epochs in training')
 parser.add_argument('--steps_for_eval', type=int, default=500, help='# of steps for eval and saving model')
 
 # for setting inputs
 parser.add_argument('--dataset_dir', type=str, default='../data/data_cleaned_sentences_phases_2020-04-16.csv')  
-parser.add_argument('--sent_max_len', type=int, default=200)  
-parser.add_argument('--max_sent_per_news', type=int, default=30)  
+parser.add_argument('--sent_max_len', type=int, default=300)  
+parser.add_argument('--max_sent_per_news', type=int, default=40)  
 parser.add_argument('--num_classes', type=int, required=True) 
 
 # model and optimizer
 parser.add_argument('--load_from', type=str, default='', help='load the pretrained model from the specified location')
-parser.add_argument('--optimizer_type', type=str, default='adam', choices=["sgd", "adam", "adamw"], help='Name of the optimizer')
+parser.add_argument('--optimizer_type', type=str, default='adamw', choices=["sgd", "adam", "adamw"], help='Name of the optimizer')
 parser.add_argument('--lr', type=float, default=1e-5, help='initial learning rate for adam')
 
 args = parser.parse_args()
@@ -116,9 +62,9 @@ train_dataset = HateSpeechDataset(phase="train", tokenizer=tokenizer, data_path=
 val_dataset = HateSpeechDataset(phase="val", tokenizer=tokenizer, data_path=args.dataset_dir, sent_max_len=args.sent_max_len, max_sent_per_news=args.max_sent_per_news)
 
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
-val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers//2, pin_memory=True)
+val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
 
-#model = Alexnet(pretrained=args.pretrained, num_new_classes=num_new_classes)
+model = HateSpeechModel(emb_hidden_dim=100, gru_hidden_size=128, num_labels=args.num_classes)
 
 if is_multigpu:
     device = 'cuda:0'
@@ -164,20 +110,21 @@ for epoch in range(init_epoch, init_epoch + args.epochs):
     epoch_accuracy = 0
 
     model.train()
-    for i, data, label in enumerate(tqdm(train_loader)):
+    for i, (data, label, gru_input) in enumerate(tqdm(train_loader)):
         data = data.to(device)
         label = label.to(device)
+        gru_input = gru_input.to(device)
 
-        output = model(data)
-        loss = criterion(output, label)
+        output = model(data, gru_input)
+        loss = criterion(output['action_logits'], label)
 
         if utils.check_loss(loss, loss.item()):
             loss.backward()
             optimizer.step()
         optimizer.zero_grad()
 
-        acc = (output.argmax(dim=1) == label).float().mean()
-        epoch_accuracy += acc / len(train_loader)
+        train_acc = (output['action_logits'].argmax(dim=1) == label).float().mean()
+        epoch_accuracy += train_acc / len(train_loader)
         epoch_loss += loss / len(train_loader)
 
         if i % args.steps_for_eval == 0 and i != 0:
@@ -186,17 +133,17 @@ for epoch in range(init_epoch, init_epoch + args.epochs):
             with torch.no_grad():
                 epoch_val_loss = 0
 
-                for data, label in val_loader:
+                for data, label, gru_input in val_loader:
                     data = data.to(device)
                     label = label.to(device)
+                    gru_input = gru_input.to(device)
 
-                    val_output = model(data)
-                    val_loss = criterion(val_output, label)
+                    val_output = model(data, gru_input)
+                    val_loss = criterion(val_output['action_logits'], label)
 
-                    acc = (val_output.argmax(dim=1) == label).float().mean()
                     epoch_val_loss += val_loss / len(val_loader)
 
-                    predictions = val_output.argmax(dim=1).data
+                    predictions = val_output['action_logits'].argmax(dim=1).data
                     f1.add_batch(predictions=predictions, references=label.data)
                     acc.add_batch(predictions=predictions, references=label.data)
                     rec.add_batch(predictions=predictions, references=label.data)

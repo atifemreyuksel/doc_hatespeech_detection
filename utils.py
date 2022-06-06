@@ -1,3 +1,10 @@
+import os
+import random
+
+import numpy as np
+import torch
+
+
 def seed_everything(seed):
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
@@ -19,8 +26,7 @@ def check_loss(loss, loss_value):
     elif loss_value < 0:
         loss_valid = False
         error = "WARNING: received a negative loss"
-    if error != '':
+    
+    if not loss_valid:
         print(error)
-        with open(os.path.join(checkpoint_dir, f"training_log_{training_uid}.txt"), "a") as f:
-            f.write(error)
     return loss_valid

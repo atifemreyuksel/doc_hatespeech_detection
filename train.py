@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from datasets import load_metric
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.optim.lr_scheduler import StepLR
 from tqdm import tqdm
 from transformers import AutoTokenizer
 
@@ -34,14 +34,14 @@ parser.add_argument('--steps_for_eval', type=int, default=500, help='# of steps 
 
 # for setting inputs
 parser.add_argument('--dataset_dir', type=str, default='../data/data_cleaned_sentences_phases_2020-04-16.csv')  
-parser.add_argument('--sent_max_len', type=int, default=300)  
+parser.add_argument('--sent_max_len', type=int, default=0)  
 parser.add_argument('--max_sent_per_news', type=int, default=40)  
 parser.add_argument('--num_classes', type=int, required=True) 
 
 # model and optimizer
 parser.add_argument('--load_from', type=str, default='', help='load the pretrained model from the specified location')
 parser.add_argument('--optimizer_type', type=str, default='adamw', choices=["sgd", "adam", "adamw"], help='Name of the optimizer')
-parser.add_argument('--lr', type=float, default=1e-5, help='initial learning rate for adam')
+parser.add_argument('--lr', type=float, default=5e-6, help='initial learning rate for adam')
 
 args = parser.parse_args()
 
@@ -55,7 +55,6 @@ json.dump(vars(args), open(config_file, 'w'))
 
 utils.seed_everything(args.seed)
 is_multigpu = "0" in args.gpu_ids and "1" in args.gpu_ids
-num_new_classes = args.num_classes
 
 tokenizer = AutoTokenizer.from_pretrained("dbmdz/bert-base-turkish-128k-uncased")
 train_dataset = HateSpeechDataset(phase="train", tokenizer=tokenizer, data_path=args.dataset_dir, sent_max_len=args.sent_max_len, max_sent_per_news=args.max_sent_per_news)
@@ -92,7 +91,8 @@ rec = load_metric("recall")
 acc = load_metric("accuracy")
 f1 = load_metric("f1")
 
-lr_scheduler = ReduceLROnPlateau(optimizer, 'max', patience=3, min_lr=1e-09, verbose=True)
+#lr_scheduler = ReduceLROnPlateau(optimizer, 'max', patience=3, min_lr=1e-09, verbose=True)
+lr_scheduler = StepLR(optimizer, step_size=10, verbose=True)
 
 init_epoch = 0
 if args.load_from != "":
@@ -110,12 +110,13 @@ for epoch in range(init_epoch, init_epoch + args.epochs):
     epoch_accuracy = 0
 
     model.train()
-    for i, (data, label, gru_input) in enumerate(tqdm(train_loader)):
-        data = data.to(device)
+    for i, (input_ids, attention_mask, label, gru_input) in enumerate(tqdm(train_loader)):
+        input_ids = input_ids.to(device)
+        attention_mask = attention_mask.to(device)
         label = label.to(device)
         gru_input = gru_input.to(device)
 
-        output = model(data, gru_input)
+        output = model(input_ids, attention_mask, gru_input)
         loss = criterion(output['action_logits'], label)
 
         if utils.check_loss(loss, loss.item()):
@@ -133,12 +134,13 @@ for epoch in range(init_epoch, init_epoch + args.epochs):
             with torch.no_grad():
                 epoch_val_loss = 0
 
-                for data, label, gru_input in val_loader:
-                    data = data.to(device)
+                for input_ids, attention_mask, label, gru_input in val_loader:
+                    input_ids = input_ids.to(device)
+                    attention_mask = attention_mask.to(device)
                     label = label.to(device)
                     gru_input = gru_input.to(device)
 
-                    val_output = model(data, gru_input)
+                    val_output = model(input_ids, attention_mask, gru_input)
                     val_loss = criterion(val_output['action_logits'], label)
 
                     epoch_val_loss += val_loss / len(val_loader)
@@ -169,8 +171,8 @@ for epoch in range(init_epoch, init_epoch + args.epochs):
                     )
                 best_f1 = val_metrics['f1']            
             
-            lr_scheduler.step(val_metrics['f1'])
-            
+            #lr_scheduler.step(val_metrics['f1'])
+            lr_scheduler.step()
             model.train()
 
             log_message = f"""Epoch : {epoch+1} - loss : {epoch_loss:.4f} - acc: {epoch_accuracy:.4f} - val_loss : {epoch_val_loss:.4f} 
@@ -189,5 +191,5 @@ for epoch in range(init_epoch, init_epoch + args.epochs):
                 },
                 ignore_index = True
             )
-            metric_df.to_csv(os.path.join(checkpoint_dir, "metrics_df.csv"), index=False)
-metric_df.to_csv(os.path.join(checkpoint_dir, "metrics_df.csv"), index=False)
+            metric_df.to_csv(os.path.join(checkpoint_dir, f"metrics_df_{training_uid}.csv"), index=False)
+metric_df.to_csv(os.path.join(checkpoint_dir, f"metrics_df_{training_uid}.csv"), index=False)

@@ -1,3 +1,5 @@
+import sys
+
 import einops
 import torch
 import torch.nn as nn
@@ -117,7 +119,7 @@ class HateSpeechModel(nn.Module):
                 output_hidden_states=True
             )
         )
-        self.text_field_embedder = self.text_embedder.embeddings
+        #self.text_field_embedder = self.text_embedder.embeddings        
         self.encoded_sentence_dim = self.text_embedder.embeddings.word_embeddings.embedding_dim
 
         self.td_ff_cls_emb_l1 = TimeDistributed(nn.Linear(self.encoded_sentence_dim, self.num_labels))
@@ -128,25 +130,39 @@ class HateSpeechModel(nn.Module):
 
         self.gru_1 = nn.GRU(input_size=gated_sentence_dim, hidden_size=self.gru_hidden_size, batch_first=True,
                             bidirectional=False, dropout=0.0, num_layers=1)
-        self.gru_decoder = DecoderGRU(embedder=self.text_field_embedder, input_size=self.encoded_sentence_dim,
+        self.gru_decoder = DecoderGRU(embedder=self.text_embedder.embeddings, input_size=self.encoded_sentence_dim,
                                       hidden_size=self.gru_hidden_size, output_size=self.gru_hidden_size)
         # Sentiment classifier
         self.ff_doc_emb = nn.Linear(self.gru_hidden_size, self.num_labels)
         self.ff_sent_cls = nn.Linear(self.gru_hidden_size + self.emb_hidden_dim, self.num_labels)
 
-    def forward(self, sentences, gru_decoder_inputs):
+    def forward(self, input_ids, attention_mask, gru_decoder_inputs):
         # --------------- SENTENCE ENCODER --------------
-        embedded_sentences = torch.zeros((sentences.shape[0], sentences.shape[1], self.encoded_sentence_dim))
-        for i in range(sentences.shape[0]):
-            sentence_i = torch.squeeze(sentences[i, ...], 0)
-            embedded_sentence_i = self.text_field_embedder(input_ids=sentence_i)
+        ### SEP token TRY
+        #embedded_sentences = torch.zeros((sentences.shape[0], sentences.shape[1], self.encoded_sentence_dim))
+        #for i in range(sentences.shape[0]):
+        #    sentence_i = torch.squeeze(sentences[i, ...], 0)
+        #    embedded_sentence_i = self.text_field_embedder(input_ids=sentence_i)
 
-            sep_idxs = torch.where(sentence_i == 3)[1].cpu().numpy()
-            sep_sentence_i = torch.zeros((sentence_i.shape[0], self.encoded_sentence_dim))
-            for j in range(sentences.shape[1]):
-                sep_sentence_i[j, :] = embedded_sentence_i[j, sep_idxs[j], :]
-            embedded_sentences[i, :, :] = sep_sentence_i    
-        embedded_sentences = embedded_sentences.to('cuda:0')
+        #    sep_idxs = torch.where(sentence_i == 3)[1].cpu().numpy()
+        #    sep_sentence_i = torch.zeros((sentence_i.shape[0], self.encoded_sentence_dim))
+        #    for j in range(sentences.shape[1]):
+        #        sep_sentence_i[j, :] = embedded_sentence_i[j, sep_idxs[j], :]
+        #    embedded_sentences[i, :, :] = sep_sentence_i    
+        #embedded_sentences = embedded_sentences.to('cuda:0')
+        
+        ### Averaging embeddings TRY
+        #batch_size, nof_sentences, _ = sentences.size()
+        #sentences = einops.rearrange(sentences, 'b s t -> (b s) t')
+        #embedded_sentences = self.text_field_embedder(input_ids=sentences)
+        #embedded_sentences = einops.rearrange(embedded_sentences, '(b s) t h -> b s t h', b=batch_size, s=nof_sentences)
+        #embedded_sentences = torch.mean(embedded_sentences, dim=2)
+
+        #print(input_ids.size())        
+        embedded_sentences = self.text_embedder(input_ids=input_ids, attention_mask=attention_mask)
+        embedded_sentences = embedded_sentences[0][:, :20, :]
+        #print(embedded_sentences.size())
+        
 
         class_sim_embeddings = self.td_ff_cls_emb_l1(embedded_sentences) # BS x max_sentences x vector_len -> BS x max_sentences x # of classes
         class_sim_embeddings = self.relu(class_sim_embeddings)

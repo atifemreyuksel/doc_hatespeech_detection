@@ -8,13 +8,15 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from datasets import load_metric
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tqdm import tqdm
 from transformers import AutoTokenizer
 
 import utils
 from data_loaders.hatespeech_loader import HateSpeechDataset
-from models.model import HateSpeechModel
+from models.attwebert import AttWeBERT
+from models.rulebert import RuleBERT
+from models.webert import WeBERT
 
 # Example command: python train.py --name test_hate_model --batch_size 4 --epochs 2 --num_classes 2
 
@@ -23,7 +25,7 @@ parser = argparse.ArgumentParser()
 # experiment specifics
 parser.add_argument('--name', type=str, default='imagenet2mnist', help='name of the experiment. It decides where to store samples and models')        
 parser.add_argument('--gpu_ids', type=str, default='0', help='gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU')
-parser.add_argument('--seed', type=int, default=47)
+parser.add_argument('--seed', type=int, default=11)
 parser.add_argument('--checkpoints_dir', type=str, default='./checkpoints', help='models are saved here')
 
 # training specifics       
@@ -36,12 +38,15 @@ parser.add_argument('--steps_for_eval', type=int, default=500, help='# of steps 
 parser.add_argument('--dataset_dir', type=str, default='../data/data_cleaned_sentences_phases_2020-04-16.csv')  
 parser.add_argument('--sent_max_len', type=int, default=0)  
 parser.add_argument('--max_sent_per_news', type=int, default=40)  
+parser.add_argument('--apply_preprocessing', dest='apply_preprocessing', action='store_true')  
+parser.add_argument('--add_ling_features', dest='add_ling_features', action='store_true')  
 parser.add_argument('--num_classes', type=int, required=True) 
 
 # model and optimizer
 parser.add_argument('--load_from', type=str, default='', help='load the pretrained model from the specified location')
+parser.add_argument('--model_type', type=str, default='attwebert', help='Type of the model')
 parser.add_argument('--optimizer_type', type=str, default='adamw', choices=["sgd", "adam", "adamw"], help='Name of the optimizer')
-parser.add_argument('--lr', type=float, default=5e-6, help='initial learning rate for adam')
+parser.add_argument('--lr', type=float, default=1e-5, help='initial learning rate for adam')
 
 args = parser.parse_args()
 
@@ -57,13 +62,34 @@ utils.seed_everything(args.seed)
 is_multigpu = "0" in args.gpu_ids and "1" in args.gpu_ids
 
 tokenizer = AutoTokenizer.from_pretrained("dbmdz/bert-base-turkish-128k-uncased")
-train_dataset = HateSpeechDataset(phase="train", tokenizer=tokenizer, data_path=args.dataset_dir, sent_max_len=args.sent_max_len, max_sent_per_news=args.max_sent_per_news)
-val_dataset = HateSpeechDataset(phase="val", tokenizer=tokenizer, data_path=args.dataset_dir, sent_max_len=args.sent_max_len, max_sent_per_news=args.max_sent_per_news)
+train_dataset = HateSpeechDataset(
+    phase="train",
+    tokenizer=tokenizer,
+    data_path=args.dataset_dir,
+    sent_max_len=args.sent_max_len,
+    max_sent_per_news=args.max_sent_per_news,
+    apply_preprocessing=args.apply_preprocessing,
+    add_ling_features=args.add_ling_features
+)
+val_dataset = HateSpeechDataset(
+    phase="val",
+    tokenizer=tokenizer,
+    data_path=args.dataset_dir,
+    sent_max_len=args.sent_max_len,
+    max_sent_per_news=args.max_sent_per_news,
+    apply_preprocessing=args.apply_preprocessing,
+    add_ling_features=args.add_ling_features
+)
 
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
 val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
 
-model = HateSpeechModel(emb_hidden_dim=100, gru_hidden_size=128, num_labels=args.num_classes)
+if args.model_type == "attwebert":
+    model = AttWeBERT(emb_hidden_dim=100, gru_hidden_size=128, num_labels=args.num_classes)
+elif args.model_type == "webert":
+    model = WeBERT(checkpoint="dbmdz/bert-base-turkish-128k-uncased", num_labels=args.num_classes)
+elif args.model_type == "rulebert":
+    model = RuleBERT(checkpoint="dbmdz/bert-base-turkish-128k-uncased", num_labels=args.num_classes, rule_dimension=26)
 
 if is_multigpu:
     device = 'cuda:0'
@@ -91,8 +117,7 @@ rec = load_metric("recall")
 acc = load_metric("accuracy")
 f1 = load_metric("f1")
 
-#lr_scheduler = ReduceLROnPlateau(optimizer, 'max', patience=3, min_lr=1e-09, verbose=True)
-lr_scheduler = StepLR(optimizer, step_size=10, verbose=True)
+lr_scheduler = ReduceLROnPlateau(optimizer, 'max', patience=3, min_lr=1e-09, verbose=True)
 
 init_epoch = 0
 if args.load_from != "":
@@ -114,10 +139,20 @@ for epoch in range(init_epoch, init_epoch + args.epochs):
         input_ids = input_ids.to(device)
         attention_mask = attention_mask.to(device)
         label = label.to(device)
-        gru_input = gru_input.to(device)
-
-        output = model(input_ids, attention_mask, gru_input)
-        loss = criterion(output['action_logits'], label)
+        if args.add_ling_features:
+            rule = gru_input.to(device)
+        else:
+            gru_input = gru_input.to(device)
+        
+        if args.model_type == "attwebert":
+            output = model(input_ids, attention_mask, gru_input)
+            loss = criterion(output['action_logits'], label)
+        elif args.model_type == "webert":
+            output = model(input_ids, attention_mask, label)
+            loss = output.loss
+        elif args.model_type == "rulebert":
+            output = model(input_ids, attention_mask, label, rule)
+            loss = output.loss
 
         if utils.check_loss(loss, loss.item()):
             loss.backward()
@@ -138,14 +173,28 @@ for epoch in range(init_epoch, init_epoch + args.epochs):
                     input_ids = input_ids.to(device)
                     attention_mask = attention_mask.to(device)
                     label = label.to(device)
-                    gru_input = gru_input.to(device)
+                    if args.add_ling_features:
+                        rule = gru_input.to(device)
+                    else:
+                        gru_input = gru_input.to(device)
 
-                    val_output = model(input_ids, attention_mask, gru_input)
-                    val_loss = criterion(val_output['action_logits'], label)
+                    if args.model_type == "attwebert":
+                        val_output = model(input_ids, attention_mask, gru_input)
+                        logits = val_output['action_logits']
+                    elif args.model_type == "webert":
+                        val_output = model(input_ids, attention_mask, label)
+                        logits = val_output.logits
+                    elif args.model_type == "rulebert":
+                        val_output = model(input_ids, attention_mask, label, rule)
+                        logits = val_output.logits
+
+                    predictions = logits.argmax(dim=1).data
+
+                    val_loss = criterion(logits, label)
 
                     epoch_val_loss += val_loss / len(val_loader)
 
-                    predictions = val_output['action_logits'].argmax(dim=1).data
+                    predictions = logits.argmax(dim=1).data
                     f1.add_batch(predictions=predictions, references=label.data)
                     acc.add_batch(predictions=predictions, references=label.data)
                     rec.add_batch(predictions=predictions, references=label.data)
@@ -171,8 +220,7 @@ for epoch in range(init_epoch, init_epoch + args.epochs):
                     )
                 best_f1 = val_metrics['f1']            
             
-            #lr_scheduler.step(val_metrics['f1'])
-            lr_scheduler.step()
+            lr_scheduler.step(val_metrics['f1'])
             model.train()
 
             log_message = f"""Epoch : {epoch+1} - loss : {epoch_loss:.4f} - acc: {epoch_accuracy:.4f} - val_loss : {epoch_val_loss:.4f} 

@@ -1,0 +1,20 @@
+{
+    "rules": [
+        "[IRK](lık|lik|luk|lük)(.*?)(yap)",
+        "[IRK_KIMLIK](?!istan|stan)(.*?)(skandalı)",
+        "[KIMLIK](?!istan|stan)(.*?)(işgali)",
+        "[IRK_KIMLIK](?!istan|stan)(a|e)\s(bak sen)",
+        "[IRK](?!istan|stan)(.*?)(işgali)",
+        "[IRK](?!istan|stan)(.*?)[IRK](?!istan|stan)(lığını|liğini|luğunu|lüğünü)(.*?)(yap)",
+        "[IRK](?!istan|stan)(ın|in|un|ün)(.*?)(uşağı|işbirlikçisi|piyonu|kuklası)(.*?)[IRK](?!istan|stan)",
+        "[IRK](?!istan|stan)(ın|in|un|ün)(.*?)(hain|vahşi|insanlık dışı|hunharca|kan donduran|şeytani|sinsi|teşebbüsleri|planları|oluşumları)",
+        "[IRK](?!istan|stan)(.*?)(kurşunlarıyla|bombalarıyla|parasıyla)",
+        "[IRK](?!istan|stan)(ın|in|un|ün)(.*?)(gerçekleştirdiği|yaptığı)(.*?)(katliam|zulüm|soykırım)",
+        "[IRK](?!istan|stan)\s(tarafından)\s(gerçekleştirilen|yapılan)(.*?)(saldırılar|katliam|zulüm|soykırım)",
+        "[IRK](?!istan|stan)\s(tarafından)\s[IRK](?!istan|stan)(a|e)(yönelik)?(.*?)(saldırılar|katliam|zulüm|soykırım)",
+        "[IRK](?!istan|stan)\s(tarafından)(.*?)(saldırıya|katliama|zulme|soykırıma)(.*?)(maruz kal|uğra)",
+        "[IRK]\s(destekli)(.*?)[IRK](?!istan|stan)(darbesi|saldırıları|katliamı|soykırımı)",
+        "[IRK](?!istan|stan)(.*?)(öldürdü|katletti|etnik temizlik yaptı|kirletti|bastı|şehit etti)",
+        "[IRK](?!istan|stan)\s(tarafından)(.*?)(öldürüldü|katledildi|basıldı|şehit edildi)"  
+    ]
+}

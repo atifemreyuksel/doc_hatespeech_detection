@@ -96,10 +96,10 @@ class ClassEmbedding(nn.Module):
         weighted_cls_embeddings = torch.bmm(inputs, emb_matrix)
         return weighted_cls_embeddings
 
-class HateSpeechModel(nn.Module):
+class AttWeBERT(nn.Module):
     """Hate speech detection model for Turkish news"""
     def __init__(self, emb_hidden_dim=100, gru_hidden_size=128, num_labels=2):
-        super(HateSpeechModel, self).__init__()
+        super(AttWeBERT, self).__init__()
         
         self.emb_hidden_dim = emb_hidden_dim
         self.gru_hidden_size = gru_hidden_size
@@ -130,8 +130,12 @@ class HateSpeechModel(nn.Module):
 
         self.gru_1 = nn.GRU(input_size=gated_sentence_dim, hidden_size=self.gru_hidden_size, batch_first=True,
                             bidirectional=False, dropout=0.0, num_layers=1)
-        self.gru_decoder = DecoderGRU(embedder=self.text_embedder.embeddings, input_size=self.encoded_sentence_dim,
-                                      hidden_size=self.gru_hidden_size, output_size=self.gru_hidden_size)
+        #self.gru_decoder = DecoderGRU(embedder=self.text_embedder.embeddings, input_size=self.encoded_sentence_dim,
+        #                              hidden_size=self.gru_hidden_size, output_size=self.gru_hidden_size)
+        self.ff_gru_doc_emb1 = nn.Linear(self.gru_hidden_size * 20, self.gru_hidden_size * 5)
+        #self.batch_norm1 = nn.BatchNorm1d(self.gru_hidden_size * 5)
+        self.ff_gru_doc_emb2 = nn.Linear(self.gru_hidden_size * 5, self.gru_hidden_size)
+        #self.batch_norm2 = nn.BatchNorm1d(self.gru_hidden_size)
         # Sentiment classifier
         self.ff_doc_emb = nn.Linear(self.gru_hidden_size, self.num_labels)
         self.ff_sent_cls = nn.Linear(self.gru_hidden_size + self.emb_hidden_dim, self.num_labels)
@@ -175,7 +179,12 @@ class HateSpeechModel(nn.Module):
         gated_embedded_sentences = importance_coefs * embedded_sentences  # -> BS x max_sentences x (vector_len + # of classes)
 
         encoder_outputs, last_hs = self.gru_1(gated_embedded_sentences) # -> BS x max_sentences x gru_hidden_size | 1 x BS, gru_hidden_size
-        document_embeddings = self.gru_decoder(gru_decoder_inputs, last_hs, encoder_outputs)
+        #document_embeddings = self.gru_decoder(gru_decoder_inputs, last_hs, encoder_outputs)
+        embedded_sentences = einops.rearrange(encoder_outputs, 'b s h -> b (s h)')
+        document_embeddings = self.ff_gru_doc_emb1(embedded_sentences)
+        document_embeddings = self.dropout(self.relu(document_embeddings))
+        document_embeddings = self.ff_gru_doc_emb2(document_embeddings)
+        document_embeddings = self.dropout(self.relu(document_embeddings))
         # --------------- SENTIMENT CLASSIFIER --------------
         class_doc_embeddings = self.ff_doc_emb(document_embeddings) # BS x vector_len -> BS x # of classes
         class_doc_embeddings = self.relu(class_doc_embeddings)

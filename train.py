@@ -135,31 +135,34 @@ for epoch in range(init_epoch, init_epoch + args.epochs):
     epoch_accuracy = 0
 
     model.train()
-    for i, (input_ids, attention_mask, label, gru_input) in enumerate(tqdm(train_loader)):
+    for i, (input_ids, attention_mask, label, gru_input, rule) in enumerate(tqdm(train_loader)):
         input_ids = input_ids.to(device)
         attention_mask = attention_mask.to(device)
         label = label.to(device)
         if args.add_ling_features:
-            rule = gru_input.to(device)
+            rule = rule.to(device)
         else:
             gru_input = gru_input.to(device)
         
         if args.model_type == "attwebert":
             output = model(input_ids, attention_mask, gru_input)
             loss = criterion(output['action_logits'], label)
+            logits = output['action_logits']
         elif args.model_type == "webert":
             output = model(input_ids, attention_mask, label)
             loss = output.loss
+            logits = output.logits
         elif args.model_type == "rulebert":
             output = model(input_ids, attention_mask, label, rule)
             loss = output.loss
+            logits = output.logits
 
         if utils.check_loss(loss, loss.item()):
             loss.backward()
             optimizer.step()
         optimizer.zero_grad()
 
-        train_acc = (output['action_logits'].argmax(dim=1) == label).float().mean()
+        train_acc = (logits.argmax(dim=1) == label).float().mean()
         epoch_accuracy += train_acc / len(train_loader)
         epoch_loss += loss / len(train_loader)
 
@@ -169,7 +172,7 @@ for epoch in range(init_epoch, init_epoch + args.epochs):
             with torch.no_grad():
                 epoch_val_loss = 0
 
-                for input_ids, attention_mask, label, gru_input in val_loader:
+                for input_ids, attention_mask, label, gru_input, rule in val_loader:
                     input_ids = input_ids.to(device)
                     attention_mask = attention_mask.to(device)
                     label = label.to(device)

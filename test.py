@@ -69,7 +69,7 @@ model.load_state_dict(checkpoint['model_state_dict'])
 all_predictions = []
 model.eval()
 with torch.no_grad():
-    for input_ids, attention_mask, label, gru_input in tqdm(test_loader):
+    for input_ids, attention_mask, label, gru_input, rule in tqdm(test_loader):
         input_ids = input_ids.to(device)
         attention_mask = attention_mask.to(device)
         label = label.to(device)

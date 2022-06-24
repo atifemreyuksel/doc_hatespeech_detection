@@ -35,6 +35,7 @@ class HateSpeechDataset(Dataset):
 
     def _read_phase_data(self, data_path, phase):
         data = pd.read_csv(data_path, sep="|", converters={"sentences": pd.eval})
+        data = data.sample(400)
         data = data[data["phase"] == phase]
         if self.apply_preprocessing:
             text_cleaner = Cleaner()
@@ -66,10 +67,10 @@ class HateSpeechDataset(Dataset):
     def __getitem__(self, idx):
         if self.add_ling_features:
             input_id, attention_mask, label, rule = self.input_ids[idx], self.attention_masks[idx], self.labels[idx], self.rules[idx]
-            return np.array(input_id), np.array(attention_mask), label, np.array(rule), self.gru_token
+            return np.array(input_id), np.array(attention_mask), label, self.gru_token, np.array(rule)
         else:
             input_id, attention_mask, label = self.input_ids[idx], self.attention_masks[idx], self.labels[idx]
-            return np.array(input_id), np.array(attention_mask), label, self.gru_token
+            return np.array(input_id), np.array(attention_mask), label, self.gru_token, None
 
     def _get_prediction_results(self, preds):
         df = pd.DataFrame(data={

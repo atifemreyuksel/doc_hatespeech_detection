@@ -102,8 +102,9 @@ class Cleaner():
     
     def process_df(self, df):
         for col in ["pub_name", "title", "content"]:
-            clean_punc = False if col == "content" else True
-            df[col] = df[col].apply(lambda text: self.__clean_text(text, clean_punc))
+            if col in df.columns:
+                clean_punc = False if col == "content" else True
+                df[col] = df[col].apply(lambda text: self.__clean_text(text, clean_punc))
         df = self.__remove_non_turkish_contents(df)
         df["sentences"] = df["content"].apply(lambda text: self.__split_sentences(text))
         df["sentences"] = df["sentences"].apply(lambda sentences: self.__remove_punctuations(sentences))
@@ -111,7 +112,6 @@ class Cleaner():
         df["title"] = df["title"].apply(lambda title: title if isinstance(title, str) else "") 
         df["text"] = df.apply(lambda row: " ".join([sent for sent in [row["title"]] + row["sentences"]]), axis=1)
         df = df.drop("sentences", axis=1)
-        print(df.head())
         return df
 
 if __name__ == '__main__':

@@ -7,7 +7,8 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from datasets import load_metric
+#from datasets import load_metric
+import evaluate
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tqdm import tqdm
 from transformers import AutoTokenizer
@@ -17,6 +18,7 @@ from data_loaders.hatespeech_loader import HateSpeechDataset
 from models.attwebert import AttWeBERT
 from models.rulebert import RuleBERT
 from models.webert import WeBERT
+from models.onlyrule import OnlyRule
 
 # Example command: python train.py --name test_hate_model --batch_size 4 --epochs 2 --num_classes 2
 
@@ -61,25 +63,49 @@ json.dump(vars(args), open(config_file, 'w'))
 utils.seed_everything(args.seed)
 is_multigpu = "0" in args.gpu_ids and "1" in args.gpu_ids
 
-tokenizer = AutoTokenizer.from_pretrained("dbmdz/bert-base-turkish-128k-uncased")
-train_dataset = HateSpeechDataset(
-    phase="train",
-    tokenizer=tokenizer,
-    data_path=args.dataset_dir,
-    sent_max_len=args.sent_max_len,
-    max_sent_per_news=args.max_sent_per_news,
-    apply_preprocessing=args.apply_preprocessing,
-    add_ling_features=args.add_ling_features
-)
-val_dataset = HateSpeechDataset(
-    phase="val",
-    tokenizer=tokenizer,
-    data_path=args.dataset_dir,
-    sent_max_len=args.sent_max_len,
-    max_sent_per_news=args.max_sent_per_news,
-    apply_preprocessing=args.apply_preprocessing,
-    add_ling_features=args.add_ling_features
-)
+only_rules = False
+if args.model_type == "onlyrule":
+    only_rules = True
+    train_dataset = HateSpeechDataset(
+        phase="train",
+        tokenizer=None,
+        data_path=args.dataset_dir,
+        sent_max_len=args.sent_max_len,
+        max_sent_per_news=args.max_sent_per_news,
+        apply_preprocessing=args.apply_preprocessing,
+        add_ling_features=args.add_ling_features,
+        only_rules=only_rules,
+    )
+    val_dataset = HateSpeechDataset(
+        phase="val",
+        tokenizer=None,
+        data_path=args.dataset_dir,
+        sent_max_len=args.sent_max_len,
+        max_sent_per_news=args.max_sent_per_news,
+        apply_preprocessing=args.apply_preprocessing,
+        add_ling_features=args.add_ling_features,
+        only_rules=only_rules,
+    )
+else:
+    tokenizer = AutoTokenizer.from_pretrained("dbmdz/bert-base-turkish-128k-uncased")
+    train_dataset = HateSpeechDataset(
+        phase="train",
+        tokenizer=tokenizer,
+        data_path=args.dataset_dir,
+        sent_max_len=args.sent_max_len,
+        max_sent_per_news=args.max_sent_per_news,
+        apply_preprocessing=args.apply_preprocessing,
+        add_ling_features=args.add_ling_features
+    )
+    val_dataset = HateSpeechDataset(
+        phase="val",
+        tokenizer=tokenizer,
+        data_path=args.dataset_dir,
+        sent_max_len=args.sent_max_len,
+        max_sent_per_news=args.max_sent_per_news,
+        apply_preprocessing=args.apply_preprocessing,
+        add_ling_features=args.add_ling_features
+    )
 
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
 val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
@@ -90,6 +116,8 @@ elif args.model_type == "webert":
     model = WeBERT(checkpoint="dbmdz/bert-base-turkish-128k-uncased", num_labels=args.num_classes)
 elif args.model_type == "rulebert":
     model = RuleBERT(checkpoint="dbmdz/bert-base-turkish-128k-uncased", num_labels=args.num_classes, rule_dimension=26)
+elif args.model_type == "onlyrule":
+    model = OnlyRule(num_labels=args.num_classes, rule_dimension=26)
 
 if is_multigpu:
     device = 'cuda:0'
@@ -112,10 +140,10 @@ else:
     raise NotImplementedError("choose adam or sgd")
 
 # Metrics
-prec = load_metric("precision")
-rec = load_metric("recall")
-acc = load_metric("accuracy")
-f1 = load_metric("f1")
+prec = evaluate.load("precision")
+rec = evaluate.load("recall")
+acc = evaluate.load("accuracy")
+f1 = evaluate.load("f1")
 
 lr_scheduler = ReduceLROnPlateau(optimizer, 'max', patience=3, min_lr=1e-09, verbose=True)
 
@@ -136,9 +164,10 @@ for epoch in range(init_epoch, init_epoch + args.epochs):
 
     model.train()
     for i, (input_ids, attention_mask, label, gru_input, rule) in enumerate(tqdm(train_loader)):
-        input_ids = input_ids.to(device)
-        attention_mask = attention_mask.to(device)
         label = label.to(device)
+        if not only_rules:
+            input_ids = input_ids.to(device)
+            attention_mask = attention_mask.to(device)
         if args.add_ling_features:
             rule = rule.to(device)
         else:
@@ -156,7 +185,10 @@ for epoch in range(init_epoch, init_epoch + args.epochs):
             output = model(input_ids, attention_mask, label, rule)
             loss = output.loss
             logits = output.logits
-
+        elif args.model_type == "onlyrule":
+            logits = model(rule)
+            loss = criterion(logits, label)
+                        
         if utils.check_loss(loss, loss.item()):
             loss.backward()
             optimizer.step()
@@ -173,11 +205,12 @@ for epoch in range(init_epoch, init_epoch + args.epochs):
                 epoch_val_loss = 0
 
                 for input_ids, attention_mask, label, gru_input, rule in val_loader:
-                    input_ids = input_ids.to(device)
-                    attention_mask = attention_mask.to(device)
                     label = label.to(device)
+                    if not only_rules:
+                        input_ids = input_ids.to(device)
+                        attention_mask = attention_mask.to(device)
                     if args.add_ling_features:
-                        rule = gru_input.to(device)
+                        rule = rule.to(device)
                     else:
                         gru_input = gru_input.to(device)
 
@@ -190,7 +223,9 @@ for epoch in range(init_epoch, init_epoch + args.epochs):
                     elif args.model_type == "rulebert":
                         val_output = model(input_ids, attention_mask, label, rule)
                         logits = val_output.logits
-
+                    elif args.model_type == "onlyrule":
+                        logits = model(rule)
+                        
                     predictions = logits.argmax(dim=1).data
 
                     val_loss = criterion(logits, label)

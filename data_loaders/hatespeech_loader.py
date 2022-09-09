@@ -81,8 +81,8 @@ class HateSpeechDataset(Dataset):
             data["all_rules"] = data.apply(lambda row: np.array(row["special_pattern"] + [row["general_rule"]] + row["anti_hs"] + row["hs_specific_verb"] + row["adj_bef_keyword"] + row["adj_after_keyword"]).astype(np.float32), axis=1)
             data = data.drop(["special_pattern", "general_rule", "anti_hs", "hs_specific_verb", "adj_bef_keyword", "adj_after_keyword"], axis=1) 
         
-        texts = list(data["text"].values)
-        instances = self.tokenizer(texts, truncation=True, padding=True)
+        self.texts = list(data["text"].values)
+        instances = self.tokenizer(self.texts, truncation=True, padding=True)
         self.input_ids = instances['input_ids']
         self.attention_masks = instances['attention_mask']
         self.rules = list(data["all_rules"].values)
@@ -90,7 +90,8 @@ class HateSpeechDataset(Dataset):
     def __getitem__(self, idx):
         if self.phase == "inference":
             input_id, attention_mask, rule = self.input_ids[idx], self.attention_masks[idx], self.rules[idx]    
-            return np.array(input_id), np.array(attention_mask), np.array(rule), self.detected_patterns
+            #return np.array(input_id), np.array(attention_mask), np.array(rule), self.detected_patterns
+            return np.array(input_id), np.array(attention_mask), np.array(rule)
         if self.add_ling_features:
             if self.only_rules:
                 input_id, attention_mask, label, rule = [], [], self.labels[idx], self.rules[idx]    

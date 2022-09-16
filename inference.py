@@ -65,5 +65,5 @@ with torch.no_grad():
 
 detected_feats = test_dataset.detected_patterns
 detected_feats["prediction"] = str(predictions.cpu().numpy()[0])
-print(text)
+print(test_dataset.texts[0])
 print(detected_feats)

@@ -69,10 +69,18 @@ class InfLinguisticRuleGenerator:
         compiled_regex = re.compile(patterns)
         for r in compiled_regex.finditer(text):
             if return_patterns:
+                found_text = r.group()
+                first_idx, second_idx = r.span()
+                if found_text[0] == " ":
+                    first_idx += 1
+                if found_text[-1] == " ":
+                    second_idx -= 1
+                found_text = found_text.strip()
+                span = (first_idx, second_idx)
                 self.detected_patterns[key_type].append(
                     {
-                        "span": r.span(),
-                        "match": r.group(),
+                        "span": span,
+                        "match": found_text,
                         "degree": degree,
                     }
                 )

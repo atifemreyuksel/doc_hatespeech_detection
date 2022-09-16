@@ -110,7 +110,7 @@ class Cleaner():
         df["sentences"] = df["sentences"].apply(lambda sentences: self.__remove_punctuations(sentences))
         df["sentences"] = df["sentences"].apply(lambda sentences: self.__clean_bad_sentences(sentences))
         df["title"] = df["title"].apply(lambda title: title if isinstance(title, str) else "") 
-        df["text"] = df.apply(lambda row: " ".join([sent for sent in [row["title"]] + row["sentences"]]), axis=1)
+        df["text"] = df.apply(lambda row: " ".join([sent for sent in [row["title"]] + row["sentences"]]).strip(), axis=1)
         df = df.drop("sentences", axis=1)
         return df
 

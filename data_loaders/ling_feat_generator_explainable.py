@@ -113,13 +113,12 @@ class InfLinguisticRuleGenerator:
                 found_rule = False
                 if degree == "20":
                     for rule in self.anti_hs_rules:
-                        detected = self.__find_spans(rule, text, "anti_hs", degree, return_patterns)
-                        if detected:
+                        detected_rule = self.__find_spans(rule, text, "anti_hs", degree, return_patterns)
+                        if detected_rule:
                             found_rule = True
-                else:
-                    patterns = f"\s({'|'.join(patterns)})|({'|'.join(patterns)})\s"
-                    patterns = r'{}'.format(patterns)
-                    detected = self.__find_spans(patterns, text, "anti_hs", degree, return_patterns)
+                patterns = f"\s({'|'.join(patterns)})|({'|'.join(patterns)})\s"
+                patterns = r'{}'.format(patterns)
+                detected = self.__find_spans(patterns, text, "anti_hs", degree, return_patterns)
                 if detected or found_rule:
                     pattern_list.append(1)
                 else:

@@ -54,7 +54,7 @@ model.load_state_dict(checkpoint['model_state_dict'])
 all_predictions = []
 model.eval()
 with torch.no_grad():
-    for input_ids, attention_mask, rule, detected_feats in tqdm(test_loader):
+    for input_ids, attention_mask, rule in tqdm(test_loader):
         input_ids = input_ids.to(device)
         attention_mask = attention_mask.to(device)
         rule = rule.to(device)
@@ -62,14 +62,8 @@ with torch.no_grad():
         test_output = model(input_ids=input_ids, attention_mask=attention_mask, rules=rule)
         logits = test_output.logits
         predictions = logits.argmax(dim=1).data
-        detected_feats["prediction"] = predictions.cpu().numpy()[0]
 
-for key_type, detected_ones in detected_feats.items():
-    if key_type == "prediction":
-        continue
-    for detected_one in detected_ones:
-        detected_one["span"] = (detected_one["span"][0].numpy()[0], detected_one["span"][1].numpy()[0])
-        detected_one["match"] = detected_one["match"][0]
-        detected_one["degree"] = detected_one["degree"][0]
+detected_feats = test_dataset.detected_patterns
+detected_feats["prediction"] = str(predictions.cpu().numpy()[0])
 print(text)
 print(detected_feats)

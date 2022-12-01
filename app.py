@@ -1,4 +1,5 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+import json
 from inference_backend import load_model, detect_hate_speech
 app = FastAPI()
 
@@ -13,8 +14,10 @@ model, device = load_model(
     )
 
 @app.post("/detect")
-async def detect(text: str):
+async def detect(request: Request):
     try:
+        body = json.loads(await request.body())
+        text = body['text']
         detected_feats = detect_hate_speech(text, model, device)
         detected_feats["status"] = True
         return detected_feats
